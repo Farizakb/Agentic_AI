@@ -7,6 +7,7 @@ from src.research_tools import (
     wikipedia_search_tool,
 )
 
+# Reads keys from the .env file
 client = Client()
 
 
