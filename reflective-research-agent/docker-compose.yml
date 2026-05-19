@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  research-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reflective_research_agent
+    ports:
+      - "8000:8000"   # FastAPI Web UI and API
+      - "5432:5432"   # PostgreSQL Database connection
+    env_file:
+      - .env
+    volumes:
+      - .:/app        # Hot reload mounting for code updates
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    restart: unless-stopped
