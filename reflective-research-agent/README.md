@@ -1,207 +1,99 @@
-# Reflective Research Agent (FastAPI + Postgres, single container)
+# Reflective Research Agent: Production-Grade Multi-Agent Orchestrator
 
-A FastAPI web app that plans a research workflow, runs tool-using agents (Tavily, arXiv, Wikipedia), and stores task state/results in Postgres.
-This repo includes a Docker setup that runs **Postgres + the API in one container** (for local/dev).
+Welcome to the **Reflective Research Agent**! This application is the flagship capstone project of the **Agentic AI** portfolio repository. It represents a fully integrated, asynchronous, full-stack multi-agent system designed to plan, research, write, and critique comprehensive academic or market research reports.
 
-## Features
-
-* `/` serves a simple UI (Jinja2 template) to kick off a research task.
-* `/generate_report` kicks off a threaded, multi-step agent workflow (planner → research/writer/editor).
-* `/task_progress/{task_id}` live status for each step/substep.
-* `/task_status/{task_id}` final status + report.
+This project is built using **FastAPI** for the backend, **PostgreSQL** for real-time task state and progress persistence, a beautiful **Bootstrap/Jinja2** interactive frontend, and a fully containerized architecture managed via **Docker Compose**.
 
 ---
 
-## Project layout (key paths)
+## 🏗️ Architecture & Component Synthesis
 
-```
-.
-├─ main.py                      # FastAPI app (your file shown above)
-├─ src/
-│  ├─ planning_agent.py         # planner_agent(), executor_agent_step()
-│  ├─ agents.py                 # research_agent, writer_agent, editor_agent  (example)
-│  └─ research_tools.py         # tavily_search_tool, arxiv_search_tool, wikipedia_search_tool
-├─ templates/
-│  └─ index.html                # UI page rendered by "/"
-├─ static/                      # optional static assets (css/js)
-├─ docker/
-│  └─ entrypoint.sh             # starts Postgres, prepares DB, then launches Uvicorn
-├─ requirements.txt
-├─ Dockerfile
-└─ README.md
+This application acts as a production-grade orchestrator that synthesizes the core agentic patterns covered in this repository:
+
+```mermaid
+graph TD
+    User([User Prompt]) --> API[FastAPI Server]
+    API -->|Init Task Status| DB[(PostgreSQL)]
+    API -->|Spawn Worker Thread| Worker[Agent Background Thread]
+    
+    subgraph Cognitive Loop
+        Worker -->|1. Plan| Planner[Planner Agent]
+        Planner -->|2. Search Tools| Tools[Tavily, arXiv, Wikipedia]
+        Tools -->|3. Draft & Critique| Reflect[Writer & Editor Agents]
+    end
+    
+    Reflect -->|4. Save Final HTML| DB
+    API -->|5. Poll Progress| User
 ```
 
-> Make sure `templates/index.html` and (optionally) `static/` exist and are copied into the image.
+1. **Dynamic Task Planning (`src/planning_agent.py`):** Decomposes a user query into a sequence of concrete, contextual research objectives (`planner_agent()`).
+2. **Dynamic Tool Execution (`src/research_tools.py`):** Equips research agents with Tavily (web search), arXiv (academic papers), and Wikipedia tools, handling structured extraction and parameter parsing.
+3. **Multi-Agent Reflection (`src/agents.py`):** Implements a structured **Writer-Editor critique loop**. The Writer drafts reports based on research findings, the Editor critiques the draft, and the Writer refines the content until it meets publication standards.
+4. **Relational State & Multi-Threading (`main.py`):** Task generation is handled in an asynchronous thread. Real-time step logs, task progress percentages, and final reports are committed to a PostgreSQL DB, allowing the client UI to poll live updates.
 
 ---
 
-## Prerequisites
+## 📂 Project Layout
 
-* **Docker** (Desktop on Windows/macOS, or engine on Linux).
-
-
-* API keys stored in a `.env` file:
-
-  ```
-  OPENAI_API_KEY=your-open-api-key
-  TAVILY_API_KEY=your-tavily-api-key
-  ```
-
-* Python deps are installed by Docker from `requirements.txt`:
-
-  * `fastapi`, `uvicorn`, `sqlalchemy`, `python-dotenv`, `jinja2`, `requests`, `wikipedia`, etc.
-  * Plus any libs used by your `aisuite` client.
-
----
-
-## Environment variables
-
-The app **reads only `DATABASE_URL`** at startup.
-
-* The container’s entrypoint sets a sane default for local dev:
-
-  ```
-  postgresql://app:local@127.0.0.1:5432/appdb
-  ```
-* To use Tavily:
-
-  * Provide `TAVILY_API_KEY` (via `.env` or `-e`).
-
-Optional (if you want to override defaults done by the entrypoint):
-
-* `POSTGRES_USER` (default `app`)
-* `POSTGRES_PASSWORD` (default `local`)
-* `POSTGRES_DB` (default `appdb`)
+```
+reflective-research-agent/
+├── main.py                  # FastAPI server, API routing, and DB connection setup
+├── Dockerfile               # Python environment + Debian PostgreSQL bootstrapping
+├── docker-compose.yml       # Local development mounting & hot-reload orchestrator
+├── requirements.txt         # Project dependencies
+├── docker/
+│   └── entrypoint.sh        # Startup script initializing Postgres and launching Uvicorn
+├── src/
+│   ├── planning_agent.py    # Decomposes queries and routes tool executions
+│   ├── agents.py            # Prompts and personas for Writer and Editor agents
+│   └── research_tools.py    # Tavily, arXiv, and Wikipedia API wrappers
+├── templates/
+│   └── index.html           # Interactive Bootstrap Jinja2 dashboard UI
+└── static/                  # Optional static assets
+```
 
 ---
 
-## Build & Run (local/dev)
+## ⚡ Getting Started (Docker Compose)
 
-### 1) Build
+The easiest way to spin up the entire application (including the FastAPI server and the PostgreSQL database) is using Docker Compose.
 
+### 1. Setup API Keys
+Create a `.env` file in this directory (`reflective-research-agent/`):
+```env
+OPENAI_API_KEY=your-openai-api-key
+TAVILY_API_KEY=your-tavily-api-key
+```
+
+### 2. Build and Launch
 ```bash
-docker build -t fastapi-postgres-service .
+docker-compose up --build
 ```
 
-### 2) Run (foreground)
-
-```bash
-docker run --rm -it  -p 8000:8000  -p 5432:5432  --name fpsvc  --env-file .env  fastapi-postgres-service
-```
-
-You should see logs like:
-
-```
-🚀 Starting Postgres cluster 17/main...
-✅ Postgres is ready
-CREATE ROLE
-CREATE DATABASE
-🔗 DATABASE_URL=postgresql://app:local@127.0.0.1:5432/appdb
-INFO:     Uvicorn running on http://0.0.0.0:8000
-```
-
-### 3) Open the app
-
-* UI: [http://localhost:8000/](http://localhost:8000/)
-* Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+On startup, `docker-compose` will:
+* Automatically build the Python environment.
+* Boot and initialize a PostgreSQL database instance.
+* Create necessary relational tables (`TaskProgress` schema).
+* Start the Uvicorn web server at **[http://localhost:8000](http://localhost:8000)**.
 
 ---
 
-## API quickstart
+## 🔌 API Quickstart
 
-### Kick off a run
-
+### 1. Initiate a Research Task
 ```bash
 curl -X POST http://localhost:8000/generate_report \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Large Language Models for scientific discovery", "model":"openai:gpt-4o"}'
-# -> {"task_id": "UUID..."}
+# Response: {"task_id": "UUID-STRING"}
 ```
 
-### Poll progress
-
+### 2. Poll Task Progress
 ```bash
 curl http://localhost:8000/task_progress/<TASK_ID>
 ```
 
-### Final status + report
-
+### 3. Retrieve Completed HTML Report
 ```bash
 curl http://localhost:8000/task_status/<TASK_ID>
 ```
-
----
-
-## Troubleshooting
-
-**I open [http://localhost:8000](http://localhost:8000) and see nothing / errors**
-
-* Confirm `templates/index.html` exists inside the container:
-
-  ```bash
-  docker exec -it fpsvc bash -lc "ls -l /app/templates && ls -l /app/static || true"
-  ```
-* Watch logs while you load the page:
-
-  ```bash
-  docker logs -f fpsvc
-  ```
-
-**Container asks for a Postgres password on startup**
-
-* The entrypoint uses **UNIX socket + peer auth** for admin tasks (no password).
-  Ensure you’re not calling `psql -h 127.0.0.1 -U postgres` in the script—use:
-
-  ```bash
-  su -s /bin/bash postgres -c "psql -c '...'"
-  ```
-
-**`DATABASE_URL not set` error**
-
-* The entrypoint exports a default DSN. If you overrode it, ensure it’s valid:
-
-  ```
-  postgresql://<user>:<password>@<host>:<port>/<database>
-  ```
-
-**Tables disappear on restart**
-
-* In your `main.py` you call `Base.metadata.drop_all(...)` on startup.
-  Comment it out or guard with an env flag:
-
-  ```python
-  if os.getenv("RESET_DB_ON_STARTUP") == "1":
-      Base.metadata.drop_all(bind=engine)
-  ```
-
-**Tavily / arXiv / Wikipedia errors**
-
-* Provide `TAVILY_API_KEY` and ensure network access, provide in the root dir and `.env` file as follows:
-```
-# OpenAI API Key
-OPENAI_API_KEY=your-open-api-key
-TAVILY_API_KEY=your-tavily-api-key
-```
-
-* Wikipedia rate limits sometimes; try later or handle exceptions gracefully.
-
----
-
-## Development tips
-
-* **Hot reload** (optional): For dev, you can run Uvicorn with `--reload` if you mount your code:
-
-  ```bash
-  docker run --rm -it -p 8000:8000 -p 5432:5432 \
-    -v "$PWD":/app \
-    --name fpsvc fastapi-postgres-service \
-    bash -lc "pg_ctlcluster \$(psql -V | awk '{print \$3}' | cut -d. -f1) main start && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
-  ```
-
-* **Connect to DB from host:**
-
-  ```bash
-  psql "postgresql://app:local@localhost:5432/appdb"
-  ```
-
----
