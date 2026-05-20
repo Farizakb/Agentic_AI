@@ -133,6 +133,9 @@ Topic: "{topic}"
     return steps
 
 
+from src.context_manager import truncate_history_to_budget
+
+
 def executor_agent_step(step_title: str, history: list, prompt: str):
     """
     Executes a step of the executor agent.
@@ -142,9 +145,14 @@ def executor_agent_step(step_title: str, history: list, prompt: str):
         - output (str)
     """
 
+    # Enforce token budget (max 10,000 tokens)
+    trimmed_history = truncate_history_to_budget(history, prompt, max_tokens=10000)
+    if len(trimmed_history) < len(history):
+        print(f"⚠️ Context budgeting: retained {len(trimmed_history)} of {len(history)} history steps.")
+
     # Construir contexto enriquecido estructurado
     context = f"📘 User Prompt:\n{prompt}\n\n📜 History so far:\n"
-    for i, (desc, agent, output) in enumerate(history):
+    for i, (desc, agent, output) in enumerate(trimmed_history):
         if "draft" in desc.lower() or agent == "writer_agent":
             context += f"\n✍️ Draft (Step {i + 1}):\n{output.strip()}\n"
         elif "feedback" in desc.lower() or agent == "editor_agent":
