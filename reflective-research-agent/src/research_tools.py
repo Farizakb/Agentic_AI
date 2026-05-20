@@ -149,13 +149,44 @@ from io import BytesIO
 # ensure_pdf_url(), clean_text(), fetch_pdf_bytes(), pdf_bytes_to_text(), maybe_save_pdf()
 
 
+def _process_single_arxiv_pdf(
+    item: dict,
+    _INCLUDE_PDF: bool,
+    _EXTRACT_TEXT: bool,
+    _MAX_PAGES: int,
+    _TEXT_CHARS: int,
+    _SAVE_FULL_TEXT: bool,
+) -> dict:
+    link_pdf = item.get("link_pdf")
+    pdf_bytes = None
+    if (_INCLUDE_PDF or _EXTRACT_TEXT) and link_pdf:
+        try:
+            pdf_bytes = fetch_pdf_bytes(link_pdf, timeout=90)
+        except Exception as e:
+            item["pdf_error"] = f"PDF fetch failed: {e}"
+
+    if _EXTRACT_TEXT and pdf_bytes:
+        try:
+            text = pdf_bytes_to_text(pdf_bytes, max_pages=_MAX_PAGES)
+            text = clean_text(text) if text else ""
+            if text:
+                if _SAVE_FULL_TEXT:
+                    item["summary"] = text
+                else:
+                    item["summary"] = text[:_TEXT_CHARS]
+        except Exception as e:
+            item["text_error"] = f"Text extraction failed: {e}"
+            
+    return item
+
+
 def arxiv_search_tool(
     query: str,
     max_results: int = 3,
 ) -> List[Dict]:
     """
     Busca en arXiv y devuelve resultados con `summary` sobrescrito
-    para contener el texto extraído del PDF (full_text si es posible).
+    para contener el texto extraído del PDF (full_text si es posible) procesados en paralelo.
     """
     # ===== FLAGS INTERNOS =====
     _INCLUDE_PDF = True
@@ -163,7 +194,6 @@ def arxiv_search_tool(
     _MAX_PAGES = 6
     _TEXT_CHARS = 5000
     _SAVE_FULL_TEXT = False
-    _SLEEP_SECONDS = 1.0
     # ==========================
 
     api_url = (
@@ -217,28 +247,25 @@ def arxiv_search_tool(
                 "summary": abstract_summary,
                 "link_pdf": link_pdf,
             }
-
-            pdf_bytes = None
-            if (_INCLUDE_PDF or _EXTRACT_TEXT) and link_pdf:
-                try:
-                    pdf_bytes = fetch_pdf_bytes(link_pdf, timeout=90)
-                    time.sleep(_SLEEP_SECONDS)
-                except Exception as e:
-                    item["pdf_error"] = f"PDF fetch failed: {e}"
-
-            if _EXTRACT_TEXT and pdf_bytes:
-                try:
-                    text = pdf_bytes_to_text(pdf_bytes, max_pages=_MAX_PAGES)
-                    text = clean_text(text) if text else ""
-                    if text:
-                        if _SAVE_FULL_TEXT:
-                            item["summary"] = text
-                        else:
-                            item["summary"] = text[:_TEXT_CHARS]
-                except Exception as e:
-                    item["text_error"] = f"Text extraction failed: {e}"
-
             out.append(item)
+
+        # Process PDFs in parallel using ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(out) or 1) as executor:
+            futures = [
+                executor.submit(
+                    _process_single_arxiv_pdf,
+                    item,
+                    _INCLUDE_PDF,
+                    _EXTRACT_TEXT,
+                    _MAX_PAGES,
+                    _TEXT_CHARS,
+                    _SAVE_FULL_TEXT,
+                )
+                for item in out
+            ]
+            out = [future.result() for future in futures]
+
         return out
     except ET.ParseError as e:
         return [{"error": f"arXiv API XML parse failed: {e}"}]
