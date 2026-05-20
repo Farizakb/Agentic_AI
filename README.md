@@ -102,27 +102,42 @@ sequenceDiagram
     participant API as FastAPI Server
     participant DB as PostgreSQL
     participant Plan as Planning Agent
+    participant Exec as Executor (executor_agent_step)
     participant Research as Research Agent
-    participant Write as Writer & Editor
+    participant Tools as External Tools (APIs)
+    participant Writer as Writer Agent
+    participant Editor as Editor Agent
 
     User->>API: POST /generate_report (Query)
     API-->>User: Return 202 (Task ID)
     
-    rect rgb(200, 220, 240)
+    rect rgb(44, 47, 49)
         note right of API: Background thread runs task:
         API->>DB: Log Task Initialized
         API->>Plan: Run planner_agent()
-        Plan-->>API: Returns list of research subtasks
+        Plan-->>API: Returns step-by-step plan (up to 7 steps)
         API->>DB: Update Subtask List
         
-        loop For each Subtask
-            API->>Research: Exec executor_agent_step() (Tavily/ArXiv/Wiki Tools)
-            Research-->>API: Returns raw research data
-            API->>DB: Log research progress
+        loop For each step in the plan
+            API->>Exec: Run executor_agent_step()
+            alt If step involves "Research"
+                Exec->>Research: Run research_agent()
+                loop Up to 5 Turns (Tool Execution Loop)
+                    Research->>Tools: Call search tool (Tavily/ArXiv/Wiki)
+                    Tools-->>Research: Return raw search data / JSON
+                    Note over Research: Model reasons & feeds back tool output
+                end
+                Research-->>Exec: Returns synthesized research findings
+            else If step involves "Draft" / "Write"
+                Exec->>Writer: Run writer_agent()
+                Writer-->>Exec: Returns draft report
+            else If step involves "Revise" / "Edit" / "Feedback"
+                Exec->>Editor: Run editor_agent()
+                Editor-->>Exec: Returns critique & corrections
+            end
+            Exec-->>API: Returns step output & agent name
+            API->>DB: Log progress & state update
         end
-        
-        API->>Write: Run writer_agent() & editor_agent() (Self-Reflection Loop)
-        Write-->>API: Returns finalized HTML report
         API->>DB: Log Final Status & Report HTML
     end
     
@@ -137,7 +152,7 @@ sequenceDiagram
 The Capstone application acts as a single cohesive orchestrator for the patterns explored across this repository:
 
 1. **Strategic Planning:** When a query is received, the `planning_agent.py` takes the prompt and decomposes it into a dynamic list of contextual research steps, storing them inside a relational PostgreSQL state-tracking table.
-2. **Robust Tool-Use:** Under the hood, the executors use custom wrapper classes for the **Tavily Search API**, **Wikipedia API**, and **arXiv API** to extract relevant data while handling exceptions, token constraints, and raw JSON mapping.
+2. **Robust Tool-Use & Agentic Loop:** Under the hood, the `research_agent` acts as an autonomous tool-using agent. Equipped with specialized wrappers for the **Tavily Search API**, **Wikipedia API**, and **arXiv API**, it determines the best search queries, triggers tool execution, parses raw JSON, and iteratively feeds back the tool responses to the model (up to 5 turns) to synthesize authoritative facts.
 3. **Recursive Reflection:** Once findings are assembled, the multi-agent system triggers a **Writer Agent** to compose the draft and an **Editor Agent** to critique, proofread, and verify facts. The content is iteratively rewritten until it meets professional publishing standards.
 4. **State Persistence & Multi-Threading:** To keep the web UI highly responsive, task generation is handled in an asynchronous thread. Real-time updates, step percentages, task state transitions, and raw data are logged in a relational database (`PostgreSQL`) so that the user can poll live status bar updates on the frontend.
 
